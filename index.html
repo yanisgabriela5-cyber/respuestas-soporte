@@ -62,6 +62,8 @@
   .label-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;}
   .label-row .label{margin-bottom:0;}
   .reset-link{font-size:11.5px;color:var(--teal-dark);background:none;border:none;cursor:pointer;text-decoration:underline;display:none;}
+  .insert-link{font-size:11px;font-weight:600;color:var(--teal-dark);background:#fff;border:1px solid #CFEFF1;border-radius:999px;padding:2px 10px;cursor:pointer;margin-left:8px;}
+  .insert-link:hover{background:#DFF4F5;}
   .preview-edit{width:100%;min-height:230px;background:var(--paper);border:1px solid var(--border);border-radius:12px;padding:14px;font-size:13.5px;line-height:1.55;font-family:inherit;resize:vertical;margin-bottom:14px;}
   .empty{text-align:center;padding:48px 16px;border:1px dashed #C9D8D9;border-radius:12px;color:var(--soft);font-size:14px;}
   .modal-bg{position:fixed;inset:0;background:rgba(30,42,43,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50;}
@@ -148,7 +150,7 @@
       <input id="fRuta" placeholder="Menú → Módulo → Pantalla">
     </div>
     <div class="field">
-      <label for="fCuerpo">Mensaje <span class="hint">— use llaves para variables: {cliente}, {ticket}, {fecha}…</span></label>
+      <label for="fCuerpo">Mensaje <span class="hint" id="hintCuerpo">— use llaves para variables: {cliente}, {ticket}, {fecha}…</span></label>
       <textarea id="fCuerpo" placeholder="Estimado(a) {cliente}:&#10;&#10;…"></textarea>
     </div>
     <div class="modal-actions">
@@ -400,11 +402,16 @@ function abrirUso(id){
   valores = {};
   manualEdit = false;
   $("btnReset").style.display = "none";
-  const vars = extraerVars(seleccionada.cuerpo);
+  // {ruta} no se pide como dato: se rellena sola con la ruta guardada
+  const vars = extraerVars(seleccionada.cuerpo).filter(v => !(v === "ruta" && seleccionada.ruta));
   $("usoTitulo").textContent = seleccionada.titulo;
 
   const rutaEl = $("usoRuta");
-  if (seleccionada.ruta){ rutaEl.textContent = "📍 " + seleccionada.ruta; rutaEl.style.display = "block"; }
+  if (seleccionada.ruta){
+    rutaEl.innerHTML = "📍 " + esc(seleccionada.ruta) +
+      ' <button class="insert-link" onclick="insertarRuta()">Insertar en el mensaje</button>';
+    rutaEl.style.display = "block";
+  }
   else rutaEl.style.display = "none";
 
   if (vars.length){
@@ -421,8 +428,20 @@ function abrirUso(id){
 }
 function textoGenerado(){
   let t = seleccionada.cuerpo;
+  if (seleccionada.ruta) t = t.split("{ruta}").join(seleccionada.ruta);
   for (const [k,v] of Object.entries(valores)) if (v) t = t.split(`{${k}}`).join(v);
   return t;
+}
+function insertarRuta(){
+  if (!seleccionada || !seleccionada.ruta) return;
+  const ta = $("usoPreview");
+  const ini = ta.selectionStart ?? ta.value.length;
+  const fin = ta.selectionEnd ?? ta.value.length;
+  ta.value = ta.value.slice(0, ini) + seleccionada.ruta + ta.value.slice(fin);
+  const pos = ini + seleccionada.ruta.length;
+  ta.setSelectionRange(pos, pos);
+  ta.focus();
+  marcarManual();
 }
 function renderPreview(forzar){
   if (manualEdit && !forzar) return;   // no pisar lo que el agente escribió a mano
@@ -464,6 +483,9 @@ function configurarFormPorTipo(){
   $("lblGrupo").textContent = esChat ? "Módulo" : "Categoría";
   $("lblTitulo").textContent = esChat ? "Título / Pregunta del cliente" : "Título";
   $("fTitulo").placeholder = esChat ? "Ej.: ¿Dónde anulo una factura?" : "Ej.: Seguimiento de caso en revisión";
+  $("hintCuerpo").textContent = esChat
+    ? "— variables con llaves: {cliente}, {ticket}… y escriba {ruta} donde quiera que aparezca la ruta guardada"
+    : "— use llaves para variables: {cliente}, {ticket}, {fecha}…";
   $("fieldRuta").classList.toggle("hidden", !esChat);
 }
 function abrirNueva(){
@@ -519,7 +541,7 @@ async function confirmarBorrar(){
 }
 
 // Exponer funciones usadas en atributos onclick
-Object.assign(window, { abrirNueva, cerrarForm, guardarForm, cerrarUso, copiar, cerrarBorrar, confirmarBorrar, cambiarSeccion, marcarManual, restablecerTexto });
+Object.assign(window, { abrirNueva, cerrarForm, guardarForm, cerrarUso, copiar, cerrarBorrar, confirmarBorrar, cambiarSeccion, marcarManual, restablecerTexto, insertarRuta });
 
 initDatos();
 </script>
