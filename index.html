@@ -64,7 +64,7 @@
   .reset-link{font-size:11.5px;color:var(--teal-dark);background:none;border:none;cursor:pointer;text-decoration:underline;display:none;}
   .insert-link{font-size:11px;font-weight:600;color:var(--teal-dark);background:#fff;border:1px solid #CFEFF1;border-radius:999px;padding:2px 10px;cursor:pointer;margin-left:8px;}
   .insert-link:hover{background:#DFF4F5;}
-  .preview-edit{width:100%;min-height:230px;background:var(--paper);border:1px solid var(--border);border-radius:12px;padding:14px;font-size:13.5px;line-height:1.55;font-family:inherit;resize:vertical;margin-bottom:14px;}
+  .preview-edit{width:100%;min-height:230px;max-height:420px;overflow-y:auto;background:var(--paper);border:1px solid var(--border);border-radius:12px;padding:14px;font-size:13.5px;line-height:1.55;font-family:inherit;white-space:pre-wrap;margin-bottom:14px;}
   .empty{text-align:center;padding:48px 16px;border:1px dashed #C9D8D9;border-radius:12px;color:var(--soft);font-size:14px;}
   .modal-bg{position:fixed;inset:0;background:rgba(30,42,43,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50;}
   .modal{background:#fff;border-radius:16px;width:100%;max-width:540px;padding:24px;box-shadow:0 12px 40px rgba(0,0,0,.2);max-height:92vh;overflow-y:auto;}
@@ -125,7 +125,7 @@
       <span class="label">Mensaje (puede editarlo antes de copiar)</span>
       <button class="reset-link" id="btnReset" onclick="restablecerTexto()">Restablecer texto original</button>
     </div>
-    <textarea class="preview-edit" id="usoPreview" oninput="marcarManual()"></textarea>
+    <div class="preview-edit" id="usoPreview" contenteditable="true" oninput="marcarManual()"></div>
     <button class="btn btn-teal" style="width:100%;justify-content:center;" id="btnCopiar" onclick="copiar()">Copiar respuesta</button>
   </div>
 </div>
@@ -140,6 +140,10 @@
     <div class="field">
       <label for="fTitulo" id="lblTitulo">Título</label>
       <input id="fTitulo" placeholder="Ej.: Seguimiento de caso en revisión">
+    </div>
+    <div class="field">
+      <label>Sección <span class="hint">— puede mover la respuesta si se creó en la sección equivocada</span></label>
+      <div class="chips" id="formSeccionChips" style="margin-bottom:0;"></div>
     </div>
     <div class="field">
       <label id="lblGrupo">Categoría</label>
@@ -426,26 +430,31 @@ function abrirUso(id){
   renderPreview(true);
   resetCopiar();
 }
-function textoGenerado(){
-  let t = seleccionada.cuerpo;
-  if (seleccionada.ruta) t = t.split("{ruta}").join(seleccionada.ruta);
-  for (const [k,v] of Object.entries(valores)) if (v) t = t.split(`{${k}}`).join(v);
-  return t;
+function htmlGenerado(){
+  let t = esc(seleccionada.cuerpo);
+  if (seleccionada.ruta) t = t.split("{ruta}").join("<b>" + esc(seleccionada.ruta) + "</b>");
+  for (const [k,v] of Object.entries(valores)) if (v) t = t.split(`{${esc(k)}}`).join(esc(v));
+  return t.replace(/\n/g,"<br>");
 }
 function insertarRuta(){
   if (!seleccionada || !seleccionada.ruta) return;
-  const ta = $("usoPreview");
-  const ini = ta.selectionStart ?? ta.value.length;
-  const fin = ta.selectionEnd ?? ta.value.length;
-  ta.value = ta.value.slice(0, ini) + seleccionada.ruta + ta.value.slice(fin);
-  const pos = ini + seleccionada.ruta.length;
-  ta.setSelectionRange(pos, pos);
-  ta.focus();
+  const el = $("usoPreview");
+  el.focus();
+  const sel = window.getSelection();
+  let range;
+  if (sel.rangeCount && el.contains(sel.anchorNode)) range = sel.getRangeAt(0);
+  else { range = document.createRange(); range.selectNodeContents(el); range.collapse(false); }
+  range.deleteContents();
+  const b = document.createElement("b");
+  b.textContent = seleccionada.ruta;
+  range.insertNode(b);
+  range.setStartAfter(b); range.collapse(true);
+  sel.removeAllRanges(); sel.addRange(range);
   marcarManual();
 }
 function renderPreview(forzar){
   if (manualEdit && !forzar) return;   // no pisar lo que el agente escribió a mano
-  $("usoPreview").value = textoGenerado();
+  $("usoPreview").innerHTML = htmlGenerado();
 }
 function marcarManual(){
   manualEdit = true;
@@ -459,17 +468,44 @@ function restablecerTexto(){
 function cerrarUso(){ seleccionada=null; $("panelUso").classList.add("hidden"); $("layout").classList.remove("dual"); }
 function resetCopiar(){ const b=$("btnCopiar"); b.textContent="Copiar respuesta"; b.style.background=""; }
 async function copiar(){
-  const t = $("usoPreview").value;
-  try { await navigator.clipboard.writeText(t); }
-  catch {
-    const ta = document.createElement("textarea"); ta.value=t; document.body.appendChild(ta);
-    ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+  const el = $("usoPreview");
+  const html = el.innerHTML;
+  const texto = el.innerText;
+  try {
+    await navigator.clipboard.write([new ClipboardItem({
+      "text/html":  new Blob([html],  { type: "text/html" }),
+      "text/plain": new Blob([texto], { type: "text/plain" }),
+    })]);
+  } catch {
+    try { await navigator.clipboard.writeText(texto); }
+    catch {
+      const ta = document.createElement("textarea"); ta.value=texto; document.body.appendChild(ta);
+      ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+    }
   }
   const b=$("btnCopiar"); b.textContent="✓ Copiado al portapapeles"; b.style.background="#2FA34D";
   setTimeout(resetCopiar, 1800);
 }
 
 // ─── Formulario crear/editar ───
+function renderFormSeccion(){
+  const opciones = [
+    { id:"rapida", nombre:"Respuestas rápidas" },
+    { id:"chat",   nombre:"Respuestas chat" },
+  ];
+  $("formSeccionChips").innerHTML = opciones.map(o => {
+    const act = formTipo===o.id;
+    return `<button class="chip ${act?"active":""}" style="${act?"background:#1E2A2B;":""}" data-fsec="${o.id}">${o.nombre}</button>`;
+  }).join("");
+  $("formSeccionChips").querySelectorAll(".chip").forEach(b => b.onclick = () => {
+    if (formTipo === b.dataset.fsec) return;
+    formTipo = b.dataset.fsec;
+    formGrupo = formTipo==="chat" ? "ventas" : "general";
+    configurarFormPorTipo();
+    renderFormChips();
+    renderFormSeccion();
+  });
+}
 function renderFormChips(){
   const grupos = gruposDe(formTipo);
   $("formChips").innerHTML = grupos.map(g => {
@@ -496,6 +532,7 @@ function abrirNueva(){
   $("fTitulo").value = ""; $("fCuerpo").value = ""; $("fRuta").value = "";
   configurarFormPorTipo();
   renderFormChips();
+  renderFormSeccion();
   $("modalForm").classList.remove("hidden");
   $("fTitulo").focus();
 }
@@ -508,6 +545,7 @@ function abrirEdicion(id){
   $("fTitulo").value = p.titulo; $("fCuerpo").value = p.cuerpo; $("fRuta").value = p.ruta || "";
   configurarFormPorTipo();
   renderFormChips();
+  renderFormSeccion();
   $("modalForm").classList.remove("hidden");
 }
 function cerrarForm(){ editando=null; $("modalForm").classList.add("hidden"); }
@@ -517,7 +555,7 @@ async function guardarForm(){
   if (!titulo || !cuerpo) return;
   const datos = { titulo, cuerpo, tipo: formTipo };
   if (formTipo === "chat"){ datos.modulo = formGrupo; datos.ruta = $("fRuta").value.trim(); }
-  else { datos.categoria = formGrupo; }
+  else { datos.categoria = formGrupo; datos.modulo = ""; datos.ruta = ""; }
   $("btnGuardar").disabled = true;
   try {
     if (editando==="nueva") await crearPlantilla(datos);
