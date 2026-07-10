@@ -64,6 +64,13 @@
   .reset-link{font-size:11.5px;color:var(--teal-dark);background:none;border:none;cursor:pointer;text-decoration:underline;display:none;}
   .insert-link{font-size:11px;font-weight:600;color:var(--teal-dark);background:#fff;border:1px solid #CFEFF1;border-radius:999px;padding:2px 10px;cursor:pointer;margin-left:8px;}
   .insert-link:hover{background:#DFF4F5;}
+  .toolbar{display:flex;align-items:center;gap:4px;flex-wrap:wrap;background:#F0F5F5;border:1px solid #D8E4E5;border-bottom:none;border-radius:10px 10px 0 0;padding:6px 8px;}
+  .tb-btn{border:1px solid transparent;background:transparent;border-radius:7px;min-width:30px;height:28px;padding:0 8px;font-size:13px;cursor:pointer;color:var(--ink);}
+  .tb-btn:hover{background:#fff;border-color:#D8E4E5;}
+  .tb-select{border:1px solid #D8E4E5;border-radius:7px;height:28px;font-size:12px;padding:0 6px;background:#fff;cursor:pointer;font-family:inherit;}
+  .editor{min-height:160px;max-height:340px;overflow-y:auto;border:1px solid #D8E4E5;border-radius:0 0 10px 10px;padding:10px 12px;font-size:14px;line-height:1.55;background:#fff;white-space:pre-wrap;}
+  .editor:focus{outline:2px solid var(--teal);}
+  .editor:empty::before{content:attr(data-placeholder);color:var(--soft);pointer-events:none;}
   .preview-edit{width:100%;min-height:230px;max-height:420px;overflow-y:auto;background:var(--paper);border:1px solid var(--border);border-radius:12px;padding:14px;font-size:13.5px;line-height:1.55;font-family:inherit;white-space:pre-wrap;margin-bottom:14px;}
   .empty{text-align:center;padding:48px 16px;border:1px dashed #C9D8D9;border-radius:12px;color:var(--soft);font-size:14px;}
   .modal-bg{position:fixed;inset:0;background:rgba(30,42,43,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50;}
@@ -154,8 +161,21 @@
       <input id="fRuta" placeholder="Menú → Módulo → Pantalla">
     </div>
     <div class="field">
-      <label for="fCuerpo">Mensaje <span class="hint" id="hintCuerpo">— use llaves para variables: {cliente}, {ticket}, {fecha}…</span></label>
-      <textarea id="fCuerpo" placeholder="Estimado(a) {cliente}:&#10;&#10;…"></textarea>
+      <label id="lblCuerpo">Mensaje <span class="hint" id="hintCuerpo">— use llaves para variables: {cliente}, {ticket}, {fecha}…</span></label>
+      <div class="toolbar">
+        <button type="button" class="tb-btn" data-cmd="bold" title="Negrita (Ctrl+B)"><b>B</b></button>
+        <button type="button" class="tb-btn" data-cmd="italic" title="Cursiva (Ctrl+I)"><i>I</i></button>
+        <button type="button" class="tb-btn" data-cmd="underline" title="Subrayado (Ctrl+U)"><u>S</u></button>
+        <select class="tb-select" id="tbSize" title="Tamaño de letra">
+          <option value="">Tamaño…</option>
+          <option value="2">Pequeña</option>
+          <option value="3">Normal</option>
+          <option value="4">Grande</option>
+          <option value="5">Muy grande</option>
+        </select>
+        <button type="button" class="tb-btn" data-cmd="removeFormat" title="Quitar formato">Quitar formato</button>
+      </div>
+      <div class="editor" id="fCuerpo" contenteditable="true" data-placeholder="Estimado(a) {cliente}: …"></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="cerrarForm()">Cancelar</button>
@@ -259,6 +279,9 @@ let db = null;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const esHTML = (s) => /<[a-z][\s\S]*>/i.test(s||"");
+const aHTML  = (s) => esHTML(s) ? s : esc(s).replace(/\n/g,"<br>");   // plantillas viejas en texto plano → HTML
+const aTexto = (s) => { if(!esHTML(s)) return s||""; const d=document.createElement("div"); d.innerHTML=s; return d.innerText; };
 const extraerVars = (t) => [...new Set((t.match(/\{([^}]+)\}/g)||[]).map(v=>v.slice(1,-1)))];
 const tipoDe = (p) => p.tipo === "chat" ? "chat" : "rapida";
 const gruposDe = (tipo) => tipo === "chat" ? MODULOS : CATEGORIAS;
@@ -362,7 +385,7 @@ function render(){
   const q = $("inputBusqueda").value.trim().toLowerCase();
   const filtradas = enSeccion.filter(p =>
     (activo==="todas" || (seccion==="chat" ? p.modulo : p.categoria) === activo) &&
-    (!q || p.titulo.toLowerCase().includes(q) || p.cuerpo.toLowerCase().includes(q) || (p.ruta||"").toLowerCase().includes(q))
+    (!q || p.titulo.toLowerCase().includes(q) || aTexto(p.cuerpo).toLowerCase().includes(q) || (p.ruta||"").toLowerCase().includes(q))
   );
 
   if (!filtradas.length){
@@ -381,7 +404,7 @@ function render(){
             ${nv ? `<span class="vars-count">🏷 ${nv} variable(s)</span>` : ""}
             <h3>${esc(p.titulo)}</h3>
             ${p.ruta ? `<div class="ruta">📍 ${esc(p.ruta)}</div>` : ""}
-            <div class="preview">${esc(p.cuerpo)}</div>
+            <div class="preview">${esc(aTexto(p.cuerpo))}</div>
           </div>
           <div style="display:flex;gap:2px;flex-shrink:0;">
             <button class="icon-btn" data-editar="${p.id}" title="Editar">✏️</button>
@@ -431,10 +454,10 @@ function abrirUso(id){
   resetCopiar();
 }
 function htmlGenerado(){
-  let t = esc(seleccionada.cuerpo);
+  let t = aHTML(seleccionada.cuerpo);
   if (seleccionada.ruta) t = t.split("{ruta}").join("<b>" + esc(seleccionada.ruta) + "</b>");
-  for (const [k,v] of Object.entries(valores)) if (v) t = t.split(`{${esc(k)}}`).join(esc(v));
-  return t.replace(/\n/g,"<br>");
+  for (const [k,v] of Object.entries(valores)) if (v) t = t.split(`{${k}}`).join(esc(v));
+  return t;
 }
 function insertarRuta(){
   if (!seleccionada || !seleccionada.ruta) return;
@@ -529,7 +552,7 @@ function abrirNueva(){
   formTipo = seccion;
   formGrupo = formTipo==="chat" ? "ventas" : "general";
   $("formTitulo").textContent = formTipo==="chat" ? "Nueva respuesta chat" : "Nueva plantilla";
-  $("fTitulo").value = ""; $("fCuerpo").value = ""; $("fRuta").value = "";
+  $("fTitulo").value = ""; $("fCuerpo").innerHTML = ""; $("fRuta").value = "";
   configurarFormPorTipo();
   renderFormChips();
   renderFormSeccion();
@@ -542,7 +565,7 @@ function abrirEdicion(id){
   formTipo = tipoDe(p);
   formGrupo = formTipo==="chat" ? (p.modulo || "ventas") : (p.categoria || "general");
   $("formTitulo").textContent = formTipo==="chat" ? "Editar respuesta chat" : "Editar plantilla";
-  $("fTitulo").value = p.titulo; $("fCuerpo").value = p.cuerpo; $("fRuta").value = p.ruta || "";
+  $("fTitulo").value = p.titulo; $("fCuerpo").innerHTML = aHTML(p.cuerpo); $("fRuta").value = p.ruta || "";
   configurarFormPorTipo();
   renderFormChips();
   renderFormSeccion();
@@ -551,8 +574,8 @@ function abrirEdicion(id){
 function cerrarForm(){ editando=null; $("modalForm").classList.add("hidden"); }
 async function guardarForm(){
   const titulo = $("fTitulo").value.trim();
-  const cuerpo = $("fCuerpo").value.trim();
-  if (!titulo || !cuerpo) return;
+  const cuerpo = $("fCuerpo").innerHTML.trim();
+  if (!titulo || !aTexto(cuerpo).trim()) return;
   const datos = { titulo, cuerpo, tipo: formTipo };
   if (formTipo === "chat"){ datos.modulo = formGrupo; datos.ruta = $("fRuta").value.trim(); }
   else { datos.categoria = formGrupo; datos.modulo = ""; datos.ruta = ""; }
@@ -577,6 +600,34 @@ async function confirmarBorrar(){
   try { await eliminarPlantilla(porBorrar.id); } catch(e){ mostrarError("No se pudo eliminar: " + e.message); }
   cerrarBorrar();
 }
+
+// ─── Barra de formato del editor ───
+let rangoEditor = null;
+document.addEventListener("selectionchange", () => {
+  const sel = document.getSelection();
+  if (sel.rangeCount && $("fCuerpo").contains(sel.anchorNode)) rangoEditor = sel.getRangeAt(0).cloneRange();
+});
+function restaurarRango(){
+  if (!rangoEditor) return;
+  const sel = document.getSelection();
+  sel.removeAllRanges(); sel.addRange(rangoEditor);
+}
+document.querySelectorAll(".tb-btn").forEach(b => {
+  b.onmousedown = (e) => e.preventDefault();      // no perder la selección del texto
+  b.onclick = () => {
+    $("fCuerpo").focus();
+    restaurarRango();
+    document.execCommand(b.dataset.cmd, false, null);
+  };
+});
+$("tbSize").onchange = () => {
+  const v = $("tbSize").value;
+  if (!v) return;
+  $("fCuerpo").focus();
+  restaurarRango();
+  document.execCommand("fontSize", false, v);
+  $("tbSize").value = "";
+};
 
 // Exponer funciones usadas en atributos onclick
 Object.assign(window, { abrirNueva, cerrarForm, guardarForm, cerrarUso, copiar, cerrarBorrar, confirmarBorrar, cambiarSeccion, marcarManual, restablecerTexto, insertarRuta });
