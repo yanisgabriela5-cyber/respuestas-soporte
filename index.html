@@ -25,6 +25,18 @@
   .btn-ghost{background:#fff;border:1px solid #D8E4E5;color:var(--ink);}
   .btn-danger{background:#D9535E;color:#fff;}
   .btn:disabled{opacity:.4;cursor:not-allowed;}
+  .header-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .agent-chip{display:inline-flex;flex-direction:column;align-items:flex-start;background:#2A3839;border:1px solid #3E5152;color:#fff;border-radius:10px;padding:5px 12px;cursor:pointer;line-height:1.15;text-align:left;font-family:inherit;}
+  .agent-chip:hover{background:#334243;}
+  #agenteNombre{font-size:13px;font-weight:600;}
+  #agentePuesto{font-size:10.5px;color:var(--teal);}
+  .agent-chip.vacio #agenteNombre{color:var(--yellow);}
+  .agente-lista{display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:6px;}
+  .agente-opcion{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border:1px solid #D8E4E5;border-radius:10px;background:#fff;cursor:pointer;text-align:left;font-family:inherit;}
+  .agente-opcion:hover{background:#F5FBFB;border-color:var(--teal);}
+  .agente-opcion.selected{background:#EAF8F9;border-color:var(--teal);}
+  .agente-opcion .nom{font-weight:600;font-size:14px;color:var(--ink);}
+  .agente-opcion .car{font-size:12px;color:var(--muted);}
   .banner{margin:16px 24px 0;padding:10px 16px;border-radius:10px;font-size:13px;}
   .banner-warn{background:#FFF3C2;color:#7A5F00;}
   .banner-err{background:#FFE8EA;color:#8A2A31;}
@@ -95,7 +107,13 @@
       <p>Soporte · Switch Soft</p>
     </div>
   </div>
-  <button class="btn btn-new" onclick="abrirNueva()" id="btnNueva">＋ Nueva plantilla</button>
+  <div class="header-actions">
+    <button class="agent-chip" id="btnAgente" onclick="abrirModalAgente()" title="Cambiar agente">
+      <span id="agenteNombre">Seleccionar agente…</span>
+      <span id="agentePuesto"></span>
+    </button>
+    <button class="btn btn-new" onclick="abrirNueva()" id="btnNueva">＋ Nueva plantilla</button>
+  </div>
 </header>
 
 <div class="tabs">
@@ -134,6 +152,20 @@
     </div>
     <div class="preview-edit" id="usoPreview" contenteditable="true" oninput="marcarManual()"></div>
     <button class="btn btn-teal" style="width:100%;justify-content:center;" id="btnCopiar" onclick="copiar()">Copiar respuesta</button>
+  </div>
+</div>
+
+<!-- Modal seleccionar agente -->
+<div class="modal-bg hidden" id="modalAgente">
+  <div class="modal" style="max-width:440px;">
+    <div class="panel-head" style="margin-bottom:14px;">
+      <h2>¿Quién está atendiendo?</h2>
+      <button class="icon-btn" onclick="cerrarModalAgente()" aria-label="Cerrar">✕</button>
+    </div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">
+      Seleccione su nombre. La firma se agregará automáticamente al final de cada respuesta. Esta elección queda guardada en su navegador.
+    </p>
+    <div class="agente-lista" id="listaAgentes"></div>
   </div>
 </div>
 
@@ -224,6 +256,17 @@ const FIREBASE_CONFIG = {
 };
 */
 
+// ─── Equipo de soporte ───
+const AGENTES = [
+  { id:"victor",    nombre:"Victor Medina",       puesto:"Líder de Soporte e Implementación" },
+  { id:"zaira",     nombre:"Zaira Pérez",         puesto:"Asesor de Implementación Contable" },
+  { id:"franklin",  nombre:"Franklin Hernandez",  puesto:"Analista de Implementación y Soporte" },
+  { id:"eniska",    nombre:"Eniska Ochoa",        puesto:"Asesor de Implementación" },
+  { id:"gabriela",  nombre:"Gabriela Yanis",      puesto:"Asesor de Implementación" },
+  { id:"francisco", nombre:"Francisco Ceballos",  puesto:"Asesor de Post Venta y Control de Calidad" },
+];
+const AGENTE_LS_KEY = "agente-actual";
+
 // ─── Sección 1: Respuestas rápidas (por categoría) ───
 const CATEGORIAS = [
   { id:"seguimiento",     nombre:"Seguimiento",      color:"#1BBFC7" },
@@ -276,6 +319,7 @@ let formTipo = "rapida";
 let manualEdit = false;
 let valores = {};
 let db = null;
+let agenteActual = null;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -290,6 +334,49 @@ const grupoDe = (p) => {
   return lista.find(g => g.id === (tipoDe(p)==="chat" ? p.modulo : p.categoria)) || lista[lista.length-1];
 };
 const mostrarError = (msg) => { const b=$("bannerError"); b.textContent=msg; b.classList.remove("hidden"); };
+
+// ─── Agente actual ───
+function cargarAgente(){
+  try {
+    const id = localStorage.getItem(AGENTE_LS_KEY);
+    if (id) agenteActual = AGENTES.find(a => a.id === id) || null;
+  } catch {}
+  pintarAgenteHeader();
+  if (!agenteActual) abrirModalAgente();
+}
+function pintarAgenteHeader(){
+  const chip = $("btnAgente");
+  if (agenteActual){
+    chip.classList.remove("vacio");
+    $("agenteNombre").textContent = agenteActual.nombre;
+    $("agentePuesto").textContent = agenteActual.puesto;
+  } else {
+    chip.classList.add("vacio");
+    $("agenteNombre").textContent = "Seleccionar agente…";
+    $("agentePuesto").textContent = "";
+  }
+}
+function abrirModalAgente(){
+  $("listaAgentes").innerHTML = AGENTES.map(a => `
+    <button class="agente-opcion ${agenteActual && agenteActual.id===a.id ? "selected":""}" data-ag="${a.id}">
+      <span>
+        <div class="nom">${esc(a.nombre)}</div>
+        <div class="car">${esc(a.puesto)}</div>
+      </span>
+      ${agenteActual && agenteActual.id===a.id ? "<span style='color:var(--teal-dark);font-weight:700;'>✓</span>" : ""}
+    </button>
+  `).join("");
+  $("listaAgentes").querySelectorAll(".agente-opcion").forEach(b => b.onclick = () => elegirAgente(b.dataset.ag));
+  $("modalAgente").classList.remove("hidden");
+}
+function cerrarModalAgente(){ $("modalAgente").classList.add("hidden"); }
+function elegirAgente(id){
+  agenteActual = AGENTES.find(a => a.id === id);
+  try { localStorage.setItem(AGENTE_LS_KEY, id); } catch {}
+  pintarAgenteHeader();
+  cerrarModalAgente();
+  if (seleccionada) renderPreview(true);   // actualiza la firma en la vista si hay una respuesta abierta
+}
 
 // ─── Capa de datos: Firestore o localStorage ───
 const LS_KEY = "plantillas-soporte-v1";
@@ -457,6 +544,16 @@ function htmlGenerado(){
   let t = aHTML(seleccionada.cuerpo);
   if (seleccionada.ruta) t = t.split("{ruta}").join("<b>" + esc(seleccionada.ruta) + "</b>");
   for (const [k,v] of Object.entries(valores)) if (v) t = t.split(`{${k}}`).join(esc(v));
+  // Reemplaza la firma genérica "Equipo de Soporte Switch Soft" por la firma del agente elegido
+  if (agenteActual){
+    const firma = `<b>${esc(agenteActual.nombre)}</b><br>${esc(agenteActual.puesto)}<br>Switch Soft`;
+    // Quita saludos previos genéricos que suelen anteceder la firma
+    t = t.replace(/(Saludos cordiales,?)(<br>\s*)+Equipo de Soporte Switch Soft/gi, "Saludos cordiales,<br>" + firma);
+    // Si la plantilla no tiene saludo previo pero sí la línea genérica, la reemplaza directo
+    t = t.replace(/Equipo de Soporte Switch Soft/gi, firma);
+    // Si no había ninguna firma, la agrega al final
+    if (!/Switch Soft/i.test(t)) t = t.replace(/(<br>\s*)+$/,"") + "<br><br>Saludos cordiales,<br>" + firma;
+  }
   return t;
 }
 function insertarRuta(){
@@ -630,8 +727,9 @@ $("tbSize").onchange = () => {
 };
 
 // Exponer funciones usadas en atributos onclick
-Object.assign(window, { abrirNueva, cerrarForm, guardarForm, cerrarUso, copiar, cerrarBorrar, confirmarBorrar, cambiarSeccion, marcarManual, restablecerTexto, insertarRuta });
+Object.assign(window, { abrirNueva, cerrarForm, guardarForm, cerrarUso, copiar, cerrarBorrar, confirmarBorrar, cambiarSeccion, marcarManual, restablecerTexto, insertarRuta, abrirModalAgente, cerrarModalAgente });
 
+cargarAgente();
 initDatos();
 </script>
 </body>
