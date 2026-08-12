@@ -251,6 +251,13 @@
   .hidden{display:none!important;}
   @media (prefers-reduced-motion: reduce){ .btn, .card, .modal, .modal-bg{transition:none; animation:none;} }
 
+  /* ── Toast ── */
+  .toast{
+    position:fixed; bottom:26px; left:50%; transform:translateX(-50%);
+    background:#0F2422; color:#fff; padding:10px 20px; border-radius:var(--r-pill);
+    font-size:13px; font-weight:600; box-shadow:var(--shadow-3); z-index:100;
+  }
+
   /* ── Scrollbar sutil ── */
   ::-webkit-scrollbar{width:10px; height:10px;}
   ::-webkit-scrollbar-track{background:transparent;}
@@ -293,6 +300,9 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       <input id="inputBusqueda" type="text" placeholder="Buscar por título, ruta o contenido…" oninput="render()">
     </div>
+    <p style="font-size:11px;color:var(--soft);margin:-6px 0 12px 2px;">
+      Tip: buscá y presione <b>Enter</b> para copiar el primer resultado sin abrirlo · <b>Esc</b> cierra paneles y ventanas
+    </p>
     <div class="chips" id="chips"></div>
     <div id="lista"></div>
   </div>
@@ -388,6 +398,8 @@
     </div>
   </div>
 </div>
+
+<div id="toast" class="toast hidden"></div>
 
 <script type="module">
 /* ════════════════════════════════════════════════════════════
@@ -488,6 +500,7 @@ const esHTML = (s) => /<[a-z][\s\S]*>/i.test(s||"");
 const aHTML  = (s) => esHTML(s) ? s : esc(s).replace(/\n/g,"<br>");   // plantillas viejas en texto plano → HTML
 const aTexto = (s) => { if(!esHTML(s)) return s||""; const d=document.createElement("div"); d.innerHTML=s; return d.innerText; };
 const extraerVars = (t) => [...new Set((t.match(/\{([^}]+)\}/g)||[]).map(v=>v.slice(1,-1)))];
+const necesitaDatos = (p) => extraerVars(p.cuerpo).filter(v => !(v === "ruta" && p.ruta)).length > 0;
 const tipoDe = (p) => p.tipo === "chat" ? "chat" : "rapida";
 const gruposDe = (tipo) => tipo === "chat" ? MODULOS : CATEGORIAS;
 const grupoDe = (p) => {
@@ -495,6 +508,13 @@ const grupoDe = (p) => {
   return lista.find(g => g.id === (tipoDe(p)==="chat" ? p.modulo : p.categoria)) || lista[lista.length-1];
 };
 const mostrarError = (msg) => { const b=$("bannerError"); b.textContent=msg; b.classList.remove("hidden"); };
+function mostrarToast(msg){
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.remove("hidden");
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.classList.add("hidden"), 1600);
+}
 
 // ─── Agente actual ───
 function cargarAgente(){
@@ -655,6 +675,8 @@ function render(){
             <div class="preview">${esc(aTexto(p.cuerpo))}</div>
           </div>
           <div style="display:flex;gap:2px;flex-shrink:0;">
+            ${!necesitaDatos(p) ? `<button class="icon-btn" data-copiar="${p.id}" title="Copiar ya mismo, sin abrir">📋</button>` : ""}
+            <button class="icon-btn" data-duplicar="${p.id}" title="Duplicar">⧉</button>
             <button class="icon-btn" data-editar="${p.id}" title="Editar">✏️</button>
             <button class="icon-btn" data-borrar="${p.id}" title="Eliminar">🗑</button>
           </div>
@@ -663,6 +685,8 @@ function render(){
     }).join("");
 
     $("lista").querySelectorAll(".card").forEach(el => el.onclick = () => abrirUso(el.dataset.id));
+    $("lista").querySelectorAll("[data-copiar]").forEach(b => b.onclick = (e) => { e.stopPropagation(); copiarRapido(b.dataset.copiar, b); });
+    $("lista").querySelectorAll("[data-duplicar]").forEach(b => b.onclick = (e) => { e.stopPropagation(); duplicarPlantilla(b.dataset.duplicar); });
     $("lista").querySelectorAll("[data-editar]").forEach(b => b.onclick = (e) => { e.stopPropagation(); abrirEdicion(b.dataset.editar); });
     $("lista").querySelectorAll("[data-borrar]").forEach(b => b.onclick = (e) => { e.stopPropagation(); abrirBorrar(b.dataset.borrar); });
   }
@@ -701,10 +725,10 @@ function abrirUso(id){
   renderPreview(true);
   resetCopiar();
 }
-function htmlGenerado(){
-  let t = aHTML(seleccionada.cuerpo);
-  if (seleccionada.ruta) t = t.split("{ruta}").join("<b>" + esc(seleccionada.ruta) + "</b>");
-  for (const [k,v] of Object.entries(valores)) if (v) t = t.split(`{${k}}`).join(esc(v));
+function generarHTML(p, vals){
+  let t = aHTML(p.cuerpo);
+  if (p.ruta) t = t.split("{ruta}").join("<b>" + esc(p.ruta) + "</b>");
+  for (const [k,v] of Object.entries(vals||{})) if (v) t = t.split(`{${k}}`).join(esc(v));
   // Reemplaza la firma genérica "Equipo de Soporte Switch Soft" por la firma del agente elegido
   if (agenteActual){
     const firma = `<b>${esc(agenteActual.nombre)}</b><br>${esc(agenteActual.puesto)}<br>Switch Soft`;
@@ -716,6 +740,49 @@ function htmlGenerado(){
     if (!/Switch Soft/i.test(t)) t = t.replace(/(<br>\s*)+$/,"") + "<br><br>Saludos cordiales,<br>" + firma;
   }
   return t;
+}
+function htmlGenerado(){ return generarHTML(seleccionada, valores); }
+async function copiarHTML(html){
+  const div = document.createElement("div"); div.innerHTML = html;
+  const texto = div.innerText;
+  try {
+    await navigator.clipboard.write([new ClipboardItem({
+      "text/html":  new Blob([html],  { type: "text/html" }),
+      "text/plain": new Blob([texto], { type: "text/plain" }),
+    })]);
+  } catch {
+    try { await navigator.clipboard.writeText(texto); }
+    catch {
+      const ta = document.createElement("textarea"); ta.value=texto; document.body.appendChild(ta);
+      ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+    }
+  }
+}
+async function copiarRapido(id, btn){
+  const p = plantillas.find(x=>x.id===id); if(!p) return;
+  await copiarHTML(generarHTML(p, {}));
+  mostrarToast("✓ Copiado: " + p.titulo);
+  if (btn){
+    const original = btn.textContent;
+    btn.textContent = "✓";
+    setTimeout(() => { btn.textContent = original; }, 1200);
+  }
+}
+function duplicarPlantilla(id){
+  const p = plantillas.find(x=>x.id===id); if(!p) return;
+  editando = "nueva";
+  formTipo = tipoDe(p);
+  formGrupo = formTipo==="chat" ? (p.modulo || "ventas") : (p.categoria || "general");
+  $("formTitulo").textContent = formTipo==="chat" ? "Nueva respuesta chat" : "Nueva plantilla";
+  $("fTitulo").value = p.titulo + " (copia)";
+  $("fCuerpo").innerHTML = aHTML(p.cuerpo);
+  $("fRuta").value = p.ruta || "";
+  configurarFormPorTipo();
+  renderFormChips();
+  renderFormSeccion();
+  $("modalForm").classList.remove("hidden");
+  $("fTitulo").focus();
+  $("fTitulo").select();
 }
 function insertarRuta(){
   if (!seleccionada || !seleccionada.ruta) return;
@@ -749,21 +816,7 @@ function restablecerTexto(){
 function cerrarUso(){ seleccionada=null; $("panelUso").classList.add("hidden"); $("layout").classList.remove("dual"); }
 function resetCopiar(){ const b=$("btnCopiar"); b.textContent="Copiar respuesta"; b.style.background=""; }
 async function copiar(){
-  const el = $("usoPreview");
-  const html = el.innerHTML;
-  const texto = el.innerText;
-  try {
-    await navigator.clipboard.write([new ClipboardItem({
-      "text/html":  new Blob([html],  { type: "text/html" }),
-      "text/plain": new Blob([texto], { type: "text/plain" }),
-    })]);
-  } catch {
-    try { await navigator.clipboard.writeText(texto); }
-    catch {
-      const ta = document.createElement("textarea"); ta.value=texto; document.body.appendChild(ta);
-      ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
-    }
-  }
+  await copiarHTML($("usoPreview").innerHTML);
   const b=$("btnCopiar"); b.textContent="✓ Copiado al portapapeles"; b.style.background="#2FA34D";
   setTimeout(resetCopiar, 1800);
 }
@@ -887,11 +940,36 @@ $("tbSize").onchange = () => {
   $("tbSize").value = "";
 };
 
+// ─── Atajos de teclado: menos clics para copiar y guardar ───
+$("inputBusqueda").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  const primera = $("lista").querySelector(".card");
+  if (!primera) return;
+  const p = plantillas.find(x => x.id === primera.dataset.id);
+  if (!p) return;
+  if (necesitaDatos(p)) abrirUso(p.id);   // hay que completar datos, se abre el panel
+  else copiarRapido(p.id);                // sin variables: copia directo con Enter
+});
+[$("fTitulo"), $("fCuerpo")].forEach(el => el.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter"){ e.preventDefault(); guardarForm(); }
+}));
+$("usoPreview").addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter"){ e.preventDefault(); copiar(); }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!$("modalForm").classList.contains("hidden")) cerrarForm();
+  else if (!$("modalBorrar").classList.contains("hidden")) cerrarBorrar();
+  else if (!$("modalAgente").classList.contains("hidden")) cerrarModalAgente();
+  else if (!$("panelUso").classList.contains("hidden")) cerrarUso();
+});
+
 // Exponer funciones usadas en atributos onclick
 Object.assign(window, { abrirNueva, cerrarForm, guardarForm, cerrarUso, copiar, cerrarBorrar, confirmarBorrar, cambiarSeccion, marcarManual, restablecerTexto, insertarRuta, abrirModalAgente, cerrarModalAgente });
 
 cargarAgente();
 initDatos();
+if (agenteActual) $("inputBusqueda").focus();
 </script>
 </body>
 </html>
