@@ -298,7 +298,7 @@
   <div>
     <div class="search">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-      <input id="inputBusqueda" type="text" placeholder="Buscar por título, ruta o contenido…" oninput="render()">
+      <input id="inputBusqueda" type="text" placeholder="Buscar por título, ruta o contenido…">
     </div>
     <p style="font-size:11px;color:var(--soft);margin:-6px 0 12px 2px;">
       Tip: buscá y presione <b>Enter</b> para copiar el primer resultado sin abrirlo · <b>Esc</b> cierra paneles y ventanas
@@ -939,6 +939,8 @@ $("tbSize").onchange = () => {
   document.execCommand("fontSize", false, v);
   $("tbSize").value = "";
 };
+
+$("inputBusqueda").addEventListener("input", render);
 
 // ─── Atajos de teclado: menos clics para copiar y guardar ───
 $("inputBusqueda").addEventListener("keydown", (e) => {
